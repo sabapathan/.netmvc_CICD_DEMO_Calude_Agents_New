@@ -102,21 +102,21 @@ jobs:
           dotnet outdated --include-transitive EcommerceApi.sln > nuget-report.txt 2>&1 || true
           cat nuget-report.txt
 
-      # ── 🤖 CLAUDE AGENT 1: Dependency Vulnerability Analyst ──
+      # ── 🤖 AGENT 1: Dependency Vulnerability Analyst (NVIDIA NIM) ──
       # Reads the NuGet vulnerability report and produces a
       # prioritized, human-readable risk summary with fix advice.
-      - name: Claude Agent 1 - Dependency Vulnerability Analyst
+      - name: Agent 1 - Dependency Vulnerability Analyst
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVDAI_API_KEY: ${{ secrets.NVDAI_API_KEY }}
         run: |
-          echo "🤖 Running Claude Agent 1: Dependency Vulnerability Analyst..."
+          echo "🤖 Running Agent 1: Dependency Vulnerability Analyst..."
 
           NUGET_REPORT=$(cat nuget-report.txt 2>/dev/null || echo "No report found")
 
           PAYLOAD=$(jq -n \
             --arg report "$NUGET_REPORT" \
             '{
-              model: "claude-sonnet-4-6",
+              model: "meta/llama-3.1-70b-instruct",
               max_tokens: 1024,
               messages: [{
                 role: "user",
@@ -124,20 +124,19 @@ jobs:
               }]
             }')
 
-          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+          RESPONSE=$(curl -s https://integrate.api.nvidia.com/v1/chat/completions \
             -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
+            -H "Authorization: Bearer $NVDAI_API_KEY" \
             -d "$PAYLOAD")
 
           echo "──────────────────────────────────────────"
-          echo "🤖 Claude Agent 1 - Dependency Risk Analysis"
+          echo "🤖 Agent 1 - Dependency Risk Analysis"
           echo "──────────────────────────────────────────"
-          echo "$RESPONSE" | jq -r '.content[0].text // "Agent response unavailable"'
+          echo "$RESPONSE" | jq -r '.choices[0].message.content // "Agent response unavailable"'
           echo "──────────────────────────────────────────"
 
           # Save report for summary
-          echo "$RESPONSE" | jq -r '.content[0].text // ""' > claude-agent1-report.txt
+          echo "$RESPONSE" | jq -r '.choices[0].message.content // ""' > agent1-report.txt
 
       # ── Collect Source Files for Claude Code Review ──────
       - name: Collect Source Code for Review
@@ -146,22 +145,21 @@ jobs:
           find src -name "*.cs" | head -20 | xargs cat > combined-source.txt 2>/dev/null || true
           echo "Source collection complete. Size: $(wc -c < combined-source.txt) bytes"
 
-      # ── 🤖 CLAUDE AGENT 2: Security Code Reviewer ────────
+      # ── 🤖 AGENT 2: Security Code Reviewer (NVIDIA NIM) ────────
       # Reviews the actual C# source for OWASP Top 10 issues,
       # insecure patterns, and hardcoded secrets.
-      # New Changes added in the PR are prioritized for review.
-      - name: Claude Agent 2 - Security Code Reviewer
+      - name: Agent 2 - Security Code Reviewer
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVDAI_API_KEY: ${{ secrets.NVDAI_API_KEY }}
         run: |
-          echo "🤖 Running Claude Agent 2: Security Code Reviewer..."
+          echo "🤖 Running Agent 2: Security Code Reviewer..."
 
           SOURCE_CODE=$(head -c 8000 combined-source.txt 2>/dev/null || echo "No source found")
 
           PAYLOAD=$(jq -n \
             --arg code "$SOURCE_CODE" \
             '{
-              model: "claude-sonnet-4-6",
+              model: "meta/llama-3.1-70b-instruct",
               max_tokens: 1024,
               messages: [{
                 role: "user",
@@ -169,31 +167,30 @@ jobs:
               }]
             }')
 
-          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+          RESPONSE=$(curl -s https://integrate.api.nvidia.com/v1/chat/completions \
             -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
+            -H "Authorization: Bearer $NVDAI_API_KEY" \
             -d "$PAYLOAD")
 
           echo "──────────────────────────────────────────"
-          echo "🤖 Claude Agent 2 - Security Code Review"
+          echo "🤖 Agent 2 - Security Code Review"
           echo "──────────────────────────────────────────"
-          echo "$RESPONSE" | jq -r '.content[0].text // "Agent response unavailable"'
+          echo "$RESPONSE" | jq -r '.choices[0].message.content // "Agent response unavailable"'
           echo "──────────────────────────────────────────"
 
-          echo "$RESPONSE" | jq -r '.content[0].text // ""' > claude-agent2-report.txt
+          echo "$RESPONSE" | jq -r '.choices[0].message.content // ""' > agent2-report.txt
 
-      # ── 🤖 CLAUDE AGENT 3: Security Gate & PR Advisor ────
+      # ── 🤖 AGENT 3: Security Gate & PR Advisor (NVIDIA NIM) ────
       # Reads both agent reports, makes a PASS/WARN/FAIL
       # decision, and writes a structured PR comment summary.
-      - name: Claude Agent 3 - Security Gate & PR Advisor
+      - name: Agent 3 - Security Gate & PR Advisor
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVDAI_API_KEY: ${{ secrets.NVDAI_API_KEY }}
         run: |
-          echo "🤖 Running Claude Agent 3: Security Gate & PR Advisor..."
+          echo "🤖 Running Agent 3: Security Gate & PR Advisor..."
 
-          AGENT1=$(cat claude-agent1-report.txt 2>/dev/null || echo "No data")
-          AGENT2=$(cat claude-agent2-report.txt 2>/dev/null || echo "No data")
+          AGENT1=$(cat agent1-report.txt 2>/dev/null || echo "No data")
+          AGENT2=$(cat agent2-report.txt 2>/dev/null || echo "No data")
 
           PAYLOAD=$(jq -n \
             --arg a1 "$AGENT1" \
@@ -201,7 +198,7 @@ jobs:
             --arg branch "${{ github.ref_name }}" \
             --arg sha "${{ github.sha }}" \
             '{
-              model: "claude-sonnet-4-6",
+              model: "meta/llama-3.1-70b-instruct",
               max_tokens: 1024,
               messages: [{
                 role: "user",
@@ -209,30 +206,29 @@ jobs:
               }]
             }')
 
-          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+          RESPONSE=$(curl -s https://integrate.api.nvidia.com/v1/chat/completions \
             -H "Content-Type: application/json" \
-            -H "x-api-key: $ANTHROPIC_API_KEY" \
-            -H "anthropic-version: 2023-06-01" \
+            -H "Authorization: Bearer $NVDAI_API_KEY" \
             -d "$PAYLOAD")
 
-          GATE_OUTPUT=$(echo "$RESPONSE" | jq -r '.content[0].text // "Agent response unavailable"')
+          GATE_OUTPUT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "Agent response unavailable"')
 
           echo "══════════════════════════════════════════"
-          echo "🤖 Claude Agent 3 - Security Gate Decision"
+          echo "🤖 Agent 3 - Security Gate Decision"
           echo "══════════════════════════════════════════"
           echo "$GATE_OUTPUT"
           echo "══════════════════════════════════════════"
 
-          echo "$GATE_OUTPUT" > claude-agent3-gate.txt
+          echo "$GATE_OUTPUT" > agent3-gate.txt
 
-          # Fail the pipeline if Claude recommends FAIL
+          # Fail the pipeline if Agent recommends FAIL
           if echo "$GATE_OUTPUT" | grep -q "^DECISION: FAIL\|DECISION.*FAIL"; then
-            echo "❌ Claude Security Gate: FAILED - Critical issues detected. Blocking pipeline."
+            echo "❌ Security Gate: FAILED - Critical issues detected. Blocking pipeline."
             exit 1
           elif echo "$GATE_OUTPUT" | grep -q "^DECISION: WARN\|DECISION.*WARN"; then
-            echo "⚠️  Claude Security Gate: WARNING - Proceeding with caution."
+            echo "⚠️  Security Gate: WARNING - Proceeding with caution."
           else
-            echo "✅ Claude Security Gate: PASSED"
+            echo "✅ Security Gate: PASSED"
           fi
 
       # ── Upload all Claude Agent Reports ──────────────────
@@ -240,11 +236,11 @@ jobs:
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: claude-security-reports
+          name: nvidia-security-reports
           path: |
-            claude-agent1-report.txt
-            claude-agent2-report.txt
-            claude-agent3-gate.txt
+            agent1-report.txt
+            agent2-report.txt
+            agent3-gate.txt
             nuget-report.txt
 
   # ─────────────────────────────────────────────────────────
@@ -371,8 +367,7 @@ jobs:
           files: '**/integration-results.trx'
           check_name: Integration Test Results
           comment_mode: always
-
-  # ─────────────────────────────────────────────────────────
+ # ─────────────────────────────────────────────────────────
   # STAGE 5: CODE QUALITY ANALYSIS
   # ─────────────────────────────────────────────────────────
   code-quality:
@@ -425,8 +420,7 @@ jobs:
           --configuration ${{ env.BUILD_CONFIGURATION }}
           /p:TreatWarningsAsErrors=true
           /p:EnforceCodeStyleInBuild=true
-
-  # ─────────────────────────────────────────────────────────
+ # ─────────────────────────────────────────────────────────
   # STAGE 6: BUILD DOCKER IMAGE
   # ─────────────────────────────────────────────────────────
   build-docker:
@@ -534,7 +528,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Published Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: ecommerce-api-publish
           path: ./publish
@@ -569,7 +563,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Download Published Artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           name: ecommerce-api-publish
           path: ./publish
@@ -613,6 +607,8 @@ jobs:
               description: 'Deployment completed successfully'
             });
 
+ 
+ 
   # ─────────────────────────────────────────────────────────
   # FINAL: SUMMARY & NOTIFICATIONS
   # ─────────────────────────────────────────────────────────
@@ -631,9 +627,9 @@ jobs:
           echo ""
           echo "Build Status:        ${{ needs.build.result }}"
           echo "Security Scan:       ${{ needs.security-scan.result }}"
-          echo "  └─ Claude Agent 1: Dependency Vulnerability Analyst"
-          echo "  └─ Claude Agent 2: Security Code Reviewer"
-          echo "  └─ Claude Agent 3: Security Gate & PR Advisor"
+          echo "  └─ Agent 1: Dependency Vulnerability Analyst (NVIDIA NIM)"
+          echo "  └─ Agent 2: Security Code Reviewer (NVIDIA NIM)"
+          echo "  └─ Agent 3: Security Gate & PR Advisor (NVIDIA NIM)"
           echo "Unit Tests:          ${{ needs.unit-tests.result }}"
           echo "Integration Tests:   ${{ needs.integration-tests.result }}"
           echo "Code Quality:        ${{ needs.code-quality.result }}"
